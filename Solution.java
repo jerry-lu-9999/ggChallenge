@@ -1,7 +1,6 @@
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-
-import org.graalvm.compiler.lir.LIRInstruction.Temp;
 
 public class Solution {
     
@@ -26,6 +25,7 @@ public class Solution {
             return String.format(numinator + "/" + denominator);
         }
     }
+
     public static int[] solution(int[][] m) {
         //1. reorganize the matrix so that first few lines will be absorting states
         List<Integer> absorting = new ArrayList<>();
@@ -65,7 +65,7 @@ public class Solution {
         Fraction[][] Q = new Fraction[nonAbsorting][nonAbsorting];
         Fraction[][] F = new Fraction[nonAbsorting][nonAbsorting];//computing I-Q first
 
-        for(int i = 0; i < R.length; i++){
+        for(int i = 0; i < R.length; i++){  //R.length means the last few lines
             for(int j = 0; j < m[i].length; j++){
                 if(j >= absorting.size()){
                     Q[i][j-absorting.size()] = newM[i+absorting.size()][j];
@@ -78,7 +78,7 @@ public class Solution {
                         F[i][j-absorting.size()].denominator = Q[i][j-absorting.size()].denominator;
                     }
                 }else{
-                    R[i][j] = newM[i+absorting.size()][j];
+                    R[i][j] = (newM[i+absorting.size()][j] == null) ? new Fraction(0,1) : newM[i+absorting.size()][j];
                 }
             }
         }
@@ -86,17 +86,64 @@ public class Solution {
         //computing F = (I-Q)^(-1)
         Fraction[][] inverse = new Fraction[F.length][F[0].length];
         F = inverse(F, inverse);
+
         //matrix multiplication F*R
+        int r1 = F.length;  int c1 = F[0].length;
+                            int c2 = R[0].length;
+        Fraction[][]FR = matrixMulti(F, R, r1, c1, c2);
 
-
-
-        for(int i = 0; i < F.length; i++){
-            for(int j = 0; j < F[i].length; j++){
-                System.out.print(F[i][j] + " ");
+        //FINAL STEP: create array and return 
+        List<Integer> denoList = new ArrayList<>();
+        int[] result = new int[FR[0].length+1]; Arrays.fill(result, -1);
+        for(int i = 0; i < FR[0].length; i++){
+            if(FR[0][i].isZero()){
+                result[i] = 0;
+            }else{
+                FR[0][i] = reduceFraction(FR[0][i].numinator, FR[0][i].denominator);
+                denoList.add(FR[0][i].denominator);
             }
-            System.out.println();
         }
-        return null;
+        int commonDeno = lcmForList(denoList);
+        result[result.length-1] = commonDeno;
+        //System.out.println(commonDeno);
+        for(int i = 0; i < result.length-1; i++){
+            if(result[i] == -1){    //not prefilled by anything
+                result[i] = commonDeno / FR[0][i].denominator * FR[0][i].numinator;
+            }
+        }
+
+        for(int i = 0; i < result.length; i++){
+            System.out.println(result[i] + " ");
+        }
+        return result;
+    }
+    
+    public static int lcmForList(List<Integer> li){
+        int result = li.get(0);
+        for(int i = 1; i < li.size(); i++){
+            result = lcm(result, li.get(i));
+        }
+        return result;
+    }
+    public static Fraction reduceFraction(int a, int b) {
+        int d;
+        d = gcd(a, b);
+
+        a = a / d;  b = b / d;
+        return new Fraction(a, b);
+    }
+
+    public static Fraction[][] matrixMulti(Fraction[][] first, Fraction[][] sec, int r1, int c1, int c2) {
+        Fraction[][] product = new Fraction[r1][c2];
+        for(int i = 0; i < r1; i++){
+            for(int j = 0; j < c2; j++){
+                for(int k = 0; k < c1; k++){
+                    if(product[i][j] == null)   product[i][j] = new Fraction(0,1);
+                    product[i][j] = addition(multiply(first[i][k], sec[k][j]), product[i][j]);
+                }
+            }
+        }
+        return product;
     }
 
     public static void adjoint(Fraction A[][], Fraction[][] adj){
@@ -106,27 +153,27 @@ public class Solution {
         for(int i = 0; i < A.length; i++){
             for(int j = 0; j < A.length; j++){
                 findCofactor(A, temp, i, j, A.length);
-
                 sign = ((i+j) % 2 == 0) ? 1 : -1;
+                
                 Fraction det = findDet(temp, A.length-1);
                 det.numinator = sign * det.numinator;
                 adj[j][i] = det;
             }
         }
     }
+
     public static Fraction findDet(Fraction A[][], int n){
         Fraction D = new Fraction(0, 1);
-
         if(n == 1){return A[0][0];}
         Fraction[][] temp = new Fraction[A.length][A[0].length];
         int sign = 1;
         //iterate for each element in the first row
         for(int f = 0; f < n; f++){
             findCofactor(A, temp, 0, f, n);
-            A[0][f].numinator = A[0][f].numinator * sign;
-            D = addition(multiply(A[0][f], findDet(temp, n-1)), D);
+            Fraction fractSign = new Fraction((sign == 1) ? 1 : -1, 1);
+            D = addition(multiply(multiply(A[0][f], findDet(temp, n-1)), fractSign), D);
             //alternate sign
-            sign =-sign;
+            sign = -sign;
         }
         return D;
     }
@@ -137,7 +184,6 @@ public class Solution {
             for(int col = 0; col < n; col++){
                 if(row != p && col != q){
                     temp[i][j++] = A[row][col];
-
                     if(j == n-1){
                         j = 0;
                         i++;
@@ -151,23 +197,29 @@ public class Solution {
         Fraction det = findDet(A, A.length);
         Fraction[][] adj = new Fraction[A.length][A[0].length];
         adjoint(A, adj);
+
         for(int i = 0; i < A.length; i++){
             for(int j = 0; j < A.length; j++){
-                inverse[i][j] = division(adj[i][j], det);
+                //System.out.println("The adj is " + adj[i][j] + "and the det is " + det);
+                inverse[i][j] = division(adj[i][j], det);   
             }
         }
         return inverse;
     }
+
     public static Fraction multiply(Fraction a, Fraction b){
+        if(a.isZero() || b.isZero())  return new Fraction(0, 1);
         Fraction c = new Fraction(a.numinator * b.numinator, a.denominator * b.denominator);
         return c;
     }
 
     public static Fraction division(Fraction a, Fraction b){
-        int temp = b.denominator;
-        b.denominator = b.numinator;
-        b.numinator = temp;
-        return multiply(a, b);
+        Fraction bcopy = new Fraction(b.numinator, b.denominator);
+        int temp = bcopy.denominator;
+        bcopy.denominator = bcopy.numinator;
+        bcopy.numinator = temp;
+
+        return multiply(a, bcopy);
     }
 
     public static int lcm(int num1, int num2){
@@ -180,8 +232,15 @@ public class Solution {
         }
         return lcm;
     }
+    //greatest common divisor
+    public static int gcd(int a, int b){
+        if(b == 0)   return a;
+        return gcd(b, a % b);
+    }
 
     public static Fraction addition(Fraction a, Fraction b){
+        if(a.isZero() || a == null)  return b;
+        if(b.isZero() || b == null)  return a;
         int lcm = lcm(a.denominator, b.denominator);
         Fraction c = new Fraction(0, lcm);
         c.numinator = lcm / a.denominator * a.numinator + lcm / b.denominator * b.numinator;
@@ -189,11 +248,22 @@ public class Solution {
     }
 
     public static void main(String[] args) {
-        int[][] test = new int[][]{{0,1,0,0,0,1},
-                                   {4,0,0,3,2,0},
-                                   {0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0}};
-        Fraction a = division(new Fraction(2, 3), new Fraction(1, 4));
-        System.out.println(a);
+        //  int[][] test = new int[][]{{0,1,0,0,0,1},
+        //                             {1,0,0,1,1,0},
+        //                             {0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0}};
+        // int[][]test = new int[][]{
+        //     {0,2,1,0,0},
+        //     {0,0,0,3,4},
+        //     {0,0,0,0,0},
+        //     {0,0,0,0,0},
+        //     {0,0,0,0,0}
+        // };
+        int[][]test = new int[][]{
+            {1,1,0,1},
+            {1,1,0,0},
+            {0,0,0,0},
+            {0,0,0,0}
+        };
         System.out.println(solution(test));
     }
 }
