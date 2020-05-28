@@ -1,6 +1,8 @@
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Solution {
     
@@ -28,14 +30,23 @@ public class Solution {
 
     public static int[] solution(int[][] m) {
         //1. reorganize the matrix so that first few lines will be absorting states
+        if(m.length == 1 && m[0].length == 1){
+            return new int[]{1,1};
+        }
         List<Integer> absorting = new ArrayList<>();
+        List<Integer> nonabsorbing = new ArrayList<>();
+        List<Integer> listAll = new ArrayList<>();
         for(int i = 0; i < m.length; i++){
             int zeroCount = 0;
             for(int j = 0; j < m[i].length; j++){
                 if(m[i][j] == 0) zeroCount++;
             }
             if(zeroCount == m[i].length) absorting.add(i);   //means the whole row is 0, an absorting state
+            else{nonabsorbing.add(i);}
         }
+
+        listAll.addAll(absorting);  listAll.addAll(nonabsorbing);
+
         //2. Create a new matrix with absorting states first
         Fraction[][] newM = new Fraction[m.length][m[0].length];
         for(int i = 0; i < absorting.size(); i++){
@@ -46,11 +57,10 @@ public class Solution {
         }
         //now populate the nonabsorting states
         for(int i = absorting.size(); i < m.length; i++){
-            int remainder = absorting.get(0);   //assuming the absorting list are continuous
             int rowSum = 0;
             List<Integer> indexList = new ArrayList<>();    //so that we know which value needs to be normalized
-            for(int j = 0; j < m[i].length; j++, remainder++){
-                int num = m[i-absorting.size()][ remainder % m.length];
+            for(int j = 0; j < m[i].length; j++){
+                int num = m[nonabsorbing.get(i-absorting.size())][listAll.get(j)];
                 newM[i][j] = new Fraction(num, 1);
                 if(num != 0){ rowSum += num; indexList.add(j);}
             }
@@ -64,34 +74,37 @@ public class Solution {
         Fraction[][] R = new Fraction[nonAbsorting][absorting.size()];
         Fraction[][] Q = new Fraction[nonAbsorting][nonAbsorting];
         Fraction[][] F = new Fraction[nonAbsorting][nonAbsorting];//computing I-Q first
-
+        Fraction one = new Fraction(1, 1);
         for(int i = 0; i < R.length; i++){  //R.length means the last few lines
             for(int j = 0; j < m[i].length; j++){
                 if(j >= absorting.size()){
                     Q[i][j-absorting.size()] = newM[i+absorting.size()][j];
                     F[i][j-absorting.size()] = new Fraction(0,1);
-                    if(Q[i][j-absorting.size()].isZero() && i == j-absorting.size()){
-                        F[i][j-absorting.size()].numinator = 1;
-                        F[i][j-absorting.size()].denominator = 1;
+                    if(i == j-absorting.size()){
+                        F[i][j-absorting.size()] = subtraction(one, Q[i][j-absorting.size()]);
                     }else{
-                        F[i][j-absorting.size()].numinator = 0 - Q[i][j-absorting.size()].numinator;
-                        F[i][j-absorting.size()].denominator = Q[i][j-absorting.size()].denominator;
+                        F[i][j-absorting.size()] = negative(Q[i][j-absorting.size()]);
                     }
                 }else{
                     R[i][j] = (newM[i+absorting.size()][j] == null) ? new Fraction(0,1) : newM[i+absorting.size()][j];
                 }
             }
         }
+        reduce(F);
+        reduce(Q);
+        reduce(R);
 
         //computing F = (I-Q)^(-1)
         Fraction[][] inverse = new Fraction[F.length][F[0].length];
         F = inverse(F, inverse);
+        reduce(F);
 
         //matrix multiplication F*R
         int r1 = F.length;  int c1 = F[0].length;
                             int c2 = R[0].length;
         Fraction[][]FR = matrixMulti(F, R, r1, c1, c2);
 
+        reduce(FR);
         //FINAL STEP: create array and return 
         List<Integer> denoList = new ArrayList<>();
         int[] result = new int[FR[0].length+1]; Arrays.fill(result, -1);
@@ -103,18 +116,16 @@ public class Solution {
                 denoList.add(FR[0][i].denominator);
             }
         }
+
         int commonDeno = lcmForList(denoList);
         result[result.length-1] = commonDeno;
-        //System.out.println(commonDeno);
+
         for(int i = 0; i < result.length-1; i++){
             if(result[i] == -1){    //not prefilled by anything
                 result[i] = commonDeno / FR[0][i].denominator * FR[0][i].numinator;
             }
         }
 
-        for(int i = 0; i < result.length; i++){
-            System.out.println(result[i] + " ");
-        }
         return result;
     }
     
@@ -130,7 +141,19 @@ public class Solution {
         d = gcd(a, b);
 
         a = a / d;  b = b / d;
+        if(b < 0){
+            b = -b;
+            a = -a;
+        }
         return new Fraction(a, b);
+    }
+
+    public static void reduce(Fraction[][]f){
+        for(int i = 0; i < f.length; i++){
+            for(int j = 0; j < f[i].length; j++){
+                f[i][j] = reduceFraction(f[i][j].numinator, f[i][j].denominator);
+            }
+        }
     }
 
     public static Fraction[][] matrixMulti(Fraction[][] first, Fraction[][] sec, int r1, int c1, int c2) {
@@ -195,12 +218,14 @@ public class Solution {
 
     public static Fraction[][] inverse(Fraction[][]A, Fraction[][] inverse){
         Fraction det = findDet(A, A.length);
+        det = reduceFraction(det.numinator, det.denominator);
+
         Fraction[][] adj = new Fraction[A.length][A[0].length];
         adjoint(A, adj);
+        reduce(adj);
 
         for(int i = 0; i < A.length; i++){
             for(int j = 0; j < A.length; j++){
-                //System.out.println("The adj is " + adj[i][j] + "and the det is " + det);
                 inverse[i][j] = division(adj[i][j], det);   
             }
         }
@@ -247,6 +272,19 @@ public class Solution {
         return c;
     }
 
+    public static Fraction subtraction(Fraction a, Fraction b){
+        if(a.isZero()) return new Fraction(b.numinator * (-1), b.denominator);
+        if(b.isZero()) return a;
+        int lcm = lcm(a.denominator, b.denominator);
+        Fraction c = new Fraction(0, lcm);
+        c.numinator = lcm /a.denominator * a.numinator - lcm / b.denominator * b.numinator;
+        return c;
+    }
+
+    public static Fraction negative(Fraction a){
+        return new Fraction(-1 * a.numinator, a.denominator);
+    }
+
     public static void main(String[] args) {
         //  int[][] test = new int[][]{{0,1,0,0,0,1},
         //                             {1,0,0,1,1,0},
@@ -259,11 +297,29 @@ public class Solution {
         //     {0,0,0,0,0}
         // };
         int[][]test = new int[][]{
-            {1,1,0,1},
-            {1,1,0,0},
-            {0,0,0,0},
-            {0,0,0,0}
+            {0, 7, 0, 17, 0, 1, 0, 5, 0, 2},
+            {0, 0, 29, 0, 28, 0, 3, 0, 16, 0},
+            {0, 3, 0, 0, 0, 1, 0, 0, 0, 0},
+            {48, 0, 3, 0, 0, 0, 17, 0, 0, 0},
+            {0, 6, 0, 0, 0, 1, 0, 0, 0, 0},
+            {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+            {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+            {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+            {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+            {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
         };
-        System.out.println(solution(test));
+        // int[][]test = new int[][]{
+        //     {1, 1, 1, 0, 1, 0, 1, 0, 1, 0},
+        //     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        //     {1, 0, 1, 1, 1, 0, 1, 0, 1, 0},
+        //     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        //     {1, 0, 1, 0, 1, 1, 1, 0, 1, 0},
+        //     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        //     {1, 0, 1, 0, 1, 0, 1, 1, 1, 0},
+        //     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        //     {1, 0, 1, 0, 1, 0, 1, 0, 1, 1},
+        //     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+        // };
+        solution(test);
     }
 }
